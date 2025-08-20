@@ -1,0 +1,14 @@
+# VCS and tooling
+.git
+.gitignore
+npm-cache
+node_modules
+.DS_Store
+
+# Local data and uploads (created at runtime inside container)
+data/
+public/uploads/
+
+# Logs and temp
+**/*.log
+**/tmp/
