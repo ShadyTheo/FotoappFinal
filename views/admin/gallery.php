@@ -2,6 +2,7 @@
     <div class="admin-header">
         <h2><?php echo htmlspecialchars($gallery['name']); ?></h2>
         <div class="header-actions">
+            <a href="/admin/galleries/<?php echo $gallery['id']; ?>/edit" class="btn btn-primary">Bearbeiten</a>
             <a href="/gallery/<?php echo $gallery['id']; ?>" class="btn btn-outline" target="_blank">Ansehen</a>
             <a href="/admin" class="btn btn-secondary">Zurück</a>
         </div>

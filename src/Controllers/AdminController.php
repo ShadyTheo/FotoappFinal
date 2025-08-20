@@ -99,7 +99,15 @@ class AdminController extends BaseController {
     
     public function createGallery() {
         $this->requireAdmin();
-        $this->render('admin/create_gallery');
+        
+        // Get all client users for assignment
+        $stmt = $this->db->getPdo()->prepare("SELECT * FROM users WHERE role = 'client' ORDER BY email");
+        $stmt->execute();
+        $users = $stmt->fetchAll();
+        
+        $this->render('admin/create_gallery', [
+            'users' => $users
+        ]);
     }
     
     public function storeGallery() {
@@ -116,6 +124,7 @@ class AdminController extends BaseController {
         $hasPaywall = isset($_POST['has_paywall']) ? 1 : 0;
         $priceAmount = $hasPaywall ? (float)($_POST['price_amount'] ?? 0) : 0;
         $priceCurrency = $this->sanitizeInput($_POST['price_currency'] ?? 'EUR');
+        $userIds = array_map('intval', $_POST['user_ids'] ?? []);
         
         // Validate email if provided
         if ($clientEmail && !filter_var($clientEmail, FILTER_VALIDATE_EMAIL)) {
@@ -147,14 +156,29 @@ class AdminController extends BaseController {
         ");
         
         try {
+            $this->db->getPdo()->beginTransaction();
+            
             $stmt->execute([$name, $clientEmail, $accessCode, $isPublic, $hasPaywall, $priceAmount, $priceCurrency]);
             $galleryId = $this->db->getPdo()->lastInsertId();
             
+            // Assign users to gallery
+            if (!empty($userIds)) {
+                $stmt = $this->db->getPdo()->prepare("
+                    INSERT INTO user_galleries (user_id, gallery_id) VALUES (?, ?)
+                ");
+                foreach ($userIds as $userId) {
+                    $stmt->execute([$userId, $galleryId]);
+                }
+            }
+            
+            $this->db->getPdo()->commit();
+            
             // Log gallery creation
-            $this->logger->log('create', 'gallery', $galleryId, "Created gallery: {$name}");
+            $this->logger->log('create', 'gallery', $galleryId, "Created gallery: {$name} with " . count($userIds) . " assigned users");
             
             $this->redirect('/admin/galleries/' . $galleryId, ['success' => 'Galerie wurde erfolgreich erstellt']);
         } catch (\Exception $e) {
+            $this->db->getPdo()->rollBack();
             $this->redirect('/admin/galleries/create', ['error' => 'Fehler beim Erstellen der Galerie']);
         }
     }
@@ -210,6 +234,125 @@ class AdminController extends BaseController {
             'uploadLimits' => $uploadLimits,
             'flash' => $this->getFlash()
         ]);
+    }
+    
+    public function editGallery($id) {
+        $this->requireAdmin();
+        
+        $stmt = $this->db->getPdo()->prepare("SELECT * FROM galleries WHERE id = ?");
+        $stmt->execute([$id]);
+        $gallery = $stmt->fetch();
+        
+        if (!$gallery) {
+            http_response_code(404);
+            echo 'Gallery not found';
+            return;
+        }
+        
+        // Get all client users
+        $stmt = $this->db->getPdo()->prepare("SELECT * FROM users WHERE role = 'client' ORDER BY email");
+        $stmt->execute();
+        $users = $stmt->fetchAll();
+        
+        // Get assigned users for this gallery
+        $stmt = $this->db->getPdo()->prepare("SELECT user_id FROM user_galleries WHERE gallery_id = ?");
+        $stmt->execute([$id]);
+        $assignedUserIds = array_column($stmt->fetchAll(), 'user_id');
+        
+        $this->render('admin/edit_gallery', [
+            'gallery' => $gallery,
+            'users' => $users,
+            'assignedUserIds' => $assignedUserIds,
+            'flash' => $this->getFlash()
+        ]);
+    }
+    
+    public function updateGallery($id) {
+        $this->requireAdmin();
+        $this->validateSession();
+        
+        // Validate CSRF token
+        CSRFToken::validateRequest();
+        
+        $stmt = $this->db->getPdo()->prepare("SELECT * FROM galleries WHERE id = ?");
+        $stmt->execute([$id]);
+        $gallery = $stmt->fetch();
+        
+        if (!$gallery) {
+            http_response_code(404);
+            echo 'Gallery not found';
+            return;
+        }
+        
+        $name = $this->sanitizeInput($_POST['name'] ?? '');
+        $clientEmail = $this->sanitizeInput($_POST['client_email'] ?? '') ?: null;
+        $accessCode = $this->sanitizeInput($_POST['access_code'] ?? '') ?: null;
+        $isPublic = isset($_POST['is_public']) ? 1 : 0;
+        $hasPaywall = isset($_POST['has_paywall']) ? 1 : 0;
+        $priceAmount = $hasPaywall ? (float)($_POST['price_amount'] ?? 0) : 0;
+        $priceCurrency = $this->sanitizeInput($_POST['price_currency'] ?? 'EUR');
+        $userIds = array_map('intval', $_POST['user_ids'] ?? []);
+        
+        // Validate email if provided
+        if ($clientEmail && !filter_var($clientEmail, FILTER_VALIDATE_EMAIL)) {
+            $this->redirect('/admin/galleries/' . $id . '/edit', ['error' => 'Ungültige E-Mail-Adresse']);
+        }
+        
+        if (empty($name)) {
+            $this->redirect('/admin/galleries/' . $id . '/edit', ['error' => 'Galeriename ist erforderlich']);
+        }
+        
+        // Validate paywall settings
+        if ($hasPaywall) {
+            if ($priceAmount < 0.01 || $priceAmount > 999.99) {
+                $this->redirect('/admin/galleries/' . $id . '/edit', ['error' => 'Preis muss zwischen 0.01 und 999.99 liegen']);
+            }
+            if (!in_array($priceCurrency, ['EUR', 'USD', 'GBP'])) {
+                $this->redirect('/admin/galleries/' . $id . '/edit', ['error' => 'Ungültige Währung']);
+            }
+        }
+        
+        // Generate access code if not provided and gallery is not public
+        if (!$isPublic && !$accessCode) {
+            $accessCode = bin2hex(random_bytes(8));
+        }
+        
+        try {
+            $this->db->getPdo()->beginTransaction();
+            
+            // Update gallery
+            $stmt = $this->db->getPdo()->prepare("
+                UPDATE galleries 
+                SET name = ?, client_email = ?, access_code = ?, is_public = ?, 
+                    has_paywall = ?, price_amount = ?, price_currency = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([$name, $clientEmail, $accessCode, $isPublic, $hasPaywall, $priceAmount, $priceCurrency, $id]);
+            
+            // Remove old user assignments
+            $stmt = $this->db->getPdo()->prepare("DELETE FROM user_galleries WHERE gallery_id = ?");
+            $stmt->execute([$id]);
+            
+            // Add new user assignments
+            if (!empty($userIds)) {
+                $stmt = $this->db->getPdo()->prepare("
+                    INSERT INTO user_galleries (user_id, gallery_id) VALUES (?, ?)
+                ");
+                foreach ($userIds as $userId) {
+                    $stmt->execute([$userId, $id]);
+                }
+            }
+            
+            $this->db->getPdo()->commit();
+            
+            // Log gallery update
+            $this->logger->log('update', 'gallery', $id, "Updated gallery: {$name} with " . count($userIds) . " assigned users");
+            
+            $this->redirect('/admin/galleries/' . $id, ['success' => 'Galerie wurde erfolgreich aktualisiert']);
+        } catch (\Exception $e) {
+            $this->db->getPdo()->rollBack();
+            $this->redirect('/admin/galleries/' . $id . '/edit', ['error' => 'Fehler beim Aktualisieren der Galerie']);
+        }
     }
     
     public function uploadMedia($id) {

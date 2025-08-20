@@ -32,6 +32,8 @@ $router->get('/admin', [AdminController::class, 'dashboard']);
 $router->get('/admin/galleries/create', [AdminController::class, 'createGallery']);
 $router->post('/admin/galleries', [AdminController::class, 'storeGallery']);
 $router->get('/admin/galleries/{id}', [AdminController::class, 'showGallery']);
+$router->get('/admin/galleries/{id}/edit', [AdminController::class, 'editGallery']);
+$router->post('/admin/galleries/{id}/update', [AdminController::class, 'updateGallery']);
 $router->post('/admin/galleries/{id}/upload', [AdminController::class, 'uploadMedia']);
 
 // User management routes
