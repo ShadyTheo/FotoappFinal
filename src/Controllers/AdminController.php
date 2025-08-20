@@ -113,6 +113,9 @@ class AdminController extends BaseController {
         $clientEmail = $this->sanitizeInput($_POST['client_email'] ?? '') ?: null;
         $accessCode = $this->sanitizeInput($_POST['access_code'] ?? '') ?: null;
         $isPublic = isset($_POST['is_public']) ? 1 : 0;
+        $hasPaywall = isset($_POST['has_paywall']) ? 1 : 0;
+        $priceAmount = $hasPaywall ? (float)($_POST['price_amount'] ?? 0) : 0;
+        $priceCurrency = $this->sanitizeInput($_POST['price_currency'] ?? 'EUR');
         
         // Validate email if provided
         if ($clientEmail && !filter_var($clientEmail, FILTER_VALIDATE_EMAIL)) {
@@ -123,18 +126,28 @@ class AdminController extends BaseController {
             $this->redirect('/admin/galleries/create', ['error' => 'Galeriename ist erforderlich']);
         }
         
+        // Validate paywall settings
+        if ($hasPaywall) {
+            if ($priceAmount < 0.01 || $priceAmount > 999.99) {
+                $this->redirect('/admin/galleries/create', ['error' => 'Preis muss zwischen 0.01 und 999.99 liegen']);
+            }
+            if (!in_array($priceCurrency, ['EUR', 'USD', 'GBP'])) {
+                $this->redirect('/admin/galleries/create', ['error' => 'Ungültige Währung']);
+            }
+        }
+        
         // Generate access code if not provided and gallery is not public
         if (!$isPublic && !$accessCode) {
             $accessCode = bin2hex(random_bytes(8));
         }
         
         $stmt = $this->db->getPdo()->prepare("
-            INSERT INTO galleries (name, client_email, access_code, is_public)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO galleries (name, client_email, access_code, is_public, has_paywall, price_amount, price_currency)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ");
         
         try {
-            $stmt->execute([$name, $clientEmail, $accessCode, $isPublic]);
+            $stmt->execute([$name, $clientEmail, $accessCode, $isPublic, $hasPaywall, $priceAmount, $priceCurrency]);
             $galleryId = $this->db->getPdo()->lastInsertId();
             
             // Log gallery creation

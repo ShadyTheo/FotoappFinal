@@ -5,6 +5,7 @@ use App\Router;
 use App\Controllers\AuthController;
 use App\Controllers\AdminController;
 use App\Controllers\GalleryController;
+use App\Controllers\PaymentController;
 use App\Security\SecurityHeaders;
 use App\Security\ErrorHandler;
 
@@ -45,6 +46,12 @@ $router->get('/admin/activity', [AdminController::class, 'activityLog']);
 
 // Media management routes
 $router->post('/media/{id}/delete', [AdminController::class, 'deleteMedia']);
+
+// Payment routes
+$router->get('/gallery/{id}/payment', [PaymentController::class, 'initiatePayment']);
+$router->get('/payment/verify/{reference}', [PaymentController::class, 'verifyPayment']);
+$router->post('/payment/confirm/{reference}', [PaymentController::class, 'confirmPayment']);
+$router->get('/payment/status/{id}', [PaymentController::class, 'checkPaymentStatus']);
 
 // User dashboard
 $router->get('/galleries', [GalleryController::class, 'userDashboard']);

@@ -37,9 +37,56 @@
             </label>
         </div>
         
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" name="has_paywall" id="paywall_checkbox" onchange="togglePaywallFields()">
+                Paywall aktivieren (Bezahlung erforderlich)
+            </label>
+        </div>
+        
+        <div id="paywall_fields" style="display: none;">
+            <div class="form-group">
+                <label for="price_amount">Preis:</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="number" id="price_amount" name="price_amount" min="0.01" max="999.99" step="0.01" placeholder="0.00" style="flex: 1;">
+                    <select name="price_currency" style="width: 80px;">
+                        <option value="EUR">EUR</option>
+                        <option value="USD">USD</option>
+                        <option value="GBP">GBP</option>
+                    </select>
+                </div>
+                <small>Mindestbetrag: 0.01, Maximalbetrag: 999.99</small>
+            </div>
+            
+            <div class="form-group">
+                <div class="alert" style="background-color: rgba(13, 110, 253, 0.1); border-left: 4px solid var(--primary); padding: 12px;">
+                    <strong>PayPal Integration:</strong><br>
+                    Zahlungen werden über PayPal.me/juliusschade abgewickelt.<br>
+                    Benutzer werden nach der Zahlung automatisch zur Galerie weitergeleitet.
+                </div>
+            </div>
+        </div>
+        
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Galerie erstellen</button>
             <a href="/admin" class="btn btn-secondary">Abbrechen</a>
         </div>
+
+<script>
+function togglePaywallFields() {
+    const checkbox = document.getElementById('paywall_checkbox');
+    const fields = document.getElementById('paywall_fields');
+    const priceInput = document.getElementById('price_amount');
+    
+    if (checkbox.checked) {
+        fields.style.display = 'block';
+        priceInput.required = true;
+    } else {
+        fields.style.display = 'none';
+        priceInput.required = false;
+        priceInput.value = '';
+    }
+}
+</script>
     </form>
 </div>

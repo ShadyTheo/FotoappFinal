@@ -23,8 +23,11 @@ class GalleryController extends BaseController {
         }
         
         // Check access permissions
-        if (!$this->hasAccess($gallery)) {
-            $this->redirect('/gallery/' . $id . '/access');
+        $accessResult = $this->checkGalleryAccess($gallery);
+        if ($accessResult !== true) {
+            // Redirect to appropriate access page
+            $this->redirect($accessResult);
+            return;
         }
         
         $stmt = $this->db->getPdo()->prepare("SELECT * FROM media WHERE gallery_id = ? ORDER BY uploaded_at DESC");
@@ -48,8 +51,10 @@ class GalleryController extends BaseController {
             return;
         }
         
-        if ($this->hasAccess($gallery)) {
+        $accessResult = $this->checkGalleryAccess($gallery);
+        if ($accessResult === true) {
             $this->redirect('/gallery/' . $id);
+            return;
         }
         
         $this->render('gallery/access', [
@@ -106,18 +111,60 @@ class GalleryController extends BaseController {
         ]);
     }
     
-    private function hasAccess($gallery) {
+    private function checkGalleryAccess($gallery) {
+        // Admin access - always allowed
+        if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
+            return true;
+        }
+        
+        // Check if gallery has paywall
+        if ($gallery['has_paywall']) {
+            return $this->checkPaywallAccess($gallery);
+        }
+        
+        // Regular access checks for non-paywall galleries
+        return $this->hasRegularAccess($gallery) ? true : '/gallery/' . $gallery['id'] . '/access';
+    }
+    
+    private function checkPaywallAccess($gallery) {
+        // Get user email
+        $email = null;
+        if (isset($_SESSION['user_id'])) {
+            $stmt = $this->db->getPdo()->prepare("SELECT email FROM users WHERE id = ?");
+            $stmt->execute([$_SESSION['user_id']]);
+            $user = $stmt->fetch();
+            $email = $user ? $user['email'] : null;
+        }
+        
+        if (!$email) {
+            // No user email, redirect to payment
+            return '/gallery/' . $gallery['id'] . '/payment';
+        }
+        
+        // Check if user has paid for this gallery
+        $stmt = $this->db->getPdo()->prepare("
+            SELECT payment_status FROM gallery_payments 
+            WHERE gallery_id = ? AND email = ? AND payment_status = 'verified'
+        ");
+        $stmt->execute([$gallery['id'], $email]);
+        $payment = $stmt->fetch();
+        
+        if ($payment) {
+            // Payment verified, grant access
+            return true;
+        }
+        
+        // No payment found, redirect to payment
+        return '/gallery/' . $gallery['id'] . '/payment';
+    }
+    
+    private function hasRegularAccess($gallery) {
         // Public galleries
         if ($gallery['is_public']) {
             return true;
         }
         
-        // Admin access
-        if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
-            return true;
-        }
-        
-        // User assignment access (password unlocks assigned galleries)
+        // User assignment access
         if (isset($_SESSION['user_id'])) {
             $stmt = $this->db->getPdo()->prepare("
                 SELECT 1 FROM user_galleries WHERE user_id = ? AND gallery_id = ?
@@ -141,5 +188,10 @@ class GalleryController extends BaseController {
         }
         
         return false;
+    }
+    
+    // Keep for backward compatibility
+    private function hasAccess($gallery) {
+        return $this->checkGalleryAccess($gallery) === true;
     }
 }

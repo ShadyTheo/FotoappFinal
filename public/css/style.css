@@ -356,6 +356,14 @@ input:focus {
     color: var(--info);
 }
 
+.status-paywall {
+    color: var(--warning);
+    font-weight: 600;
+    background-color: rgba(253, 126, 20, 0.1);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--border-radius-sm);
+}
+
 .gallery-actions {
     display: flex;
     gap: var(--spacing-sm);

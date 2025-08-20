@@ -98,13 +98,16 @@
                         <?php echo htmlspecialchars($gallery['name']); ?>
                     </a>
                 </h3>
-                <span class="gallery-status">
+                <div class="gallery-status">
+                    <?php if ($gallery['has_paywall']): ?>
+                    <span class="status-paywall">💰 <?php echo number_format($gallery['price_amount'], 2); ?> <?php echo $gallery['price_currency']; ?></span>
+                    <?php endif; ?>
                     <?php if ($gallery['is_public']): ?>
                     <span class="status-public">Öffentlich</span>
                     <?php elseif ($gallery['access_code']): ?>
                     <span class="status-code">Mit Code</span>
                     <?php endif; ?>
-                </span>
+                </div>
             </div>
             
             <div class="gallery-stats">

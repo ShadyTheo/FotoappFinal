@@ -40,6 +40,9 @@ class Database {
             client_email TEXT,
             access_code TEXT,
             is_public INTEGER DEFAULT 0,
+            has_paywall INTEGER DEFAULT 0,
+            price_amount DECIMAL(10,2) DEFAULT 0.00,
+            price_currency TEXT DEFAULT 'EUR',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         
@@ -82,12 +85,32 @@ class Database {
             FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
         );
         
+        CREATE TABLE IF NOT EXISTS gallery_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gallery_id INTEGER NOT NULL,
+            user_id INTEGER,
+            email TEXT NOT NULL,
+            amount DECIMAL(10,2) NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'EUR',
+            payment_reference TEXT UNIQUE,
+            payment_status TEXT DEFAULT 'pending' CHECK(payment_status IN ('pending', 'verified', 'failed', 'refunded')),
+            paypal_transaction_id TEXT,
+            payment_verified_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (gallery_id) REFERENCES galleries (id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+        );
+        
         CREATE INDEX IF NOT EXISTS idx_media_gallery_id ON media(gallery_id);
         CREATE INDEX IF NOT EXISTS idx_media_user_id ON media(user_id);
         CREATE INDEX IF NOT EXISTS idx_user_galleries_user_id ON user_galleries(user_id);
         CREATE INDEX IF NOT EXISTS idx_user_galleries_gallery_id ON user_galleries(gallery_id);
         CREATE INDEX IF NOT EXISTS idx_activity_log_user_id ON activity_log(user_id);
         CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at);
+        CREATE INDEX IF NOT EXISTS idx_gallery_payments_gallery_id ON gallery_payments(gallery_id);
+        CREATE INDEX IF NOT EXISTS idx_gallery_payments_user_id ON gallery_payments(user_id);
+        CREATE INDEX IF NOT EXISTS idx_gallery_payments_reference ON gallery_payments(payment_reference);
+        CREATE INDEX IF NOT EXISTS idx_gallery_payments_status ON gallery_payments(payment_status);
         ";
         
         $this->pdo->exec($sql);
@@ -141,8 +164,46 @@ class Database {
             
             if (!$hasUserId) {
                 $this->pdo->exec('ALTER TABLE media ADD COLUMN user_id INTEGER');
-                // Index for performance (foreign key constraint cannot be added retroactively in SQLite)
                 $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_media_user_id ON media(user_id)');
+            }
+            
+            // Add paywall columns to galleries table if they don't exist
+            $stmt = $this->pdo->query("SELECT 1 FROM pragma_table_info('galleries') WHERE name = 'has_paywall' LIMIT 1");
+            $hasPaywallField = (bool) $stmt->fetchColumn();
+            
+            if (!$hasPaywallField) {
+                $this->pdo->exec('ALTER TABLE galleries ADD COLUMN has_paywall INTEGER DEFAULT 0');
+                $this->pdo->exec('ALTER TABLE galleries ADD COLUMN price_amount DECIMAL(10,2) DEFAULT 0.00');
+                $this->pdo->exec('ALTER TABLE galleries ADD COLUMN price_currency TEXT DEFAULT "EUR"');
+            }
+            
+            // Create payments table if it doesn't exist
+            $stmt = $this->pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='gallery_payments'");
+            $paymentsTableExists = (bool) $stmt->fetchColumn();
+            
+            if (!$paymentsTableExists) {
+                $this->pdo->exec("
+                    CREATE TABLE gallery_payments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        gallery_id INTEGER NOT NULL,
+                        user_id INTEGER,
+                        email TEXT NOT NULL,
+                        amount DECIMAL(10,2) NOT NULL,
+                        currency TEXT NOT NULL DEFAULT 'EUR',
+                        payment_reference TEXT UNIQUE,
+                        payment_status TEXT DEFAULT 'pending' CHECK(payment_status IN ('pending', 'verified', 'failed', 'refunded')),
+                        paypal_transaction_id TEXT,
+                        payment_verified_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (gallery_id) REFERENCES galleries (id) ON DELETE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+                    )
+                ");
+                
+                $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_gallery_payments_gallery_id ON gallery_payments(gallery_id)');
+                $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_gallery_payments_user_id ON gallery_payments(user_id)');
+                $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_gallery_payments_reference ON gallery_payments(payment_reference)');
+                $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_gallery_payments_status ON gallery_payments(payment_status)');
             }
         } catch (\Exception $e) {
             error_log('Schema migration failed: ' . $e->getMessage());
