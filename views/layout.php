@@ -16,9 +16,16 @@
                 <h1>Foto-Galerie</h1>
             </div>
             <?php if (isset($_SESSION['user_id'])): ?>
-            <div class="nav-menu">
+            <button class="mobile-menu-toggle" onclick="toggleMobileMenu()">
+                <span>☰</span>
+            </button>
+            <div class="nav-menu" id="nav-menu">
                 <?php if ($_SESSION['user_role'] === 'admin'): ?>
                 <a href="/admin" class="nav-link">Dashboard</a>
+                <a href="/admin/users" class="nav-link">Benutzer</a>
+                <a href="/admin/activity" class="nav-link">Aktivitätsprotokoll</a>
+                <?php else: ?>
+                <a href="/galleries" class="nav-link">Meine Galerien</a>
                 <?php endif; ?>
                 <form method="POST" action="/logout" style="display: inline;">
                     <button type="submit" class="nav-link btn-link">Abmelden</button>

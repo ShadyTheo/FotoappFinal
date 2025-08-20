@@ -1,3 +1,52 @@
+// Mobile menu functionality
+function toggleMobileMenu() {
+    const navMenu = document.getElementById('nav-menu');
+    if (navMenu) {
+        navMenu.classList.toggle('active');
+    }
+}
+
+// Close mobile menu when clicking outside
+document.addEventListener('click', function(event) {
+    const navMenu = document.getElementById('nav-menu');
+    const menuToggle = document.querySelector('.mobile-menu-toggle');
+    
+    if (navMenu && menuToggle && 
+        !navMenu.contains(event.target) && 
+        !menuToggle.contains(event.target)) {
+        navMenu.classList.remove('active');
+    }
+});
+
+// Enhanced touch support for media items
+document.addEventListener('DOMContentLoaded', function() {
+    // Add touch event handling for better mobile experience
+    const mediaItems = document.querySelectorAll('.media-item');
+    
+    mediaItems.forEach(item => {
+        // Add touch feedback
+        item.addEventListener('touchstart', function() {
+            this.style.opacity = '0.8';
+        });
+        
+        item.addEventListener('touchend', function() {
+            this.style.opacity = '1';
+        });
+        
+        item.addEventListener('touchcancel', function() {
+            this.style.opacity = '1';
+        });
+    });
+    
+    // Prevent zoom on double tap for upload area
+    const uploadArea = document.getElementById('upload-area');
+    if (uploadArea) {
+        uploadArea.addEventListener('touchend', function(event) {
+            event.preventDefault();
+        });
+    }
+});
+
 // Upload functionality
 document.addEventListener('DOMContentLoaded', function() {
     const uploadArea = document.getElementById('upload-area');
@@ -197,6 +246,116 @@ document.addEventListener('keydown', function(e) {
                 break;
         }
     }
+});
+
+// Touch gesture support for lightbox
+document.addEventListener('DOMContentLoaded', function() {
+    const lightbox = document.getElementById('lightbox');
+    if (!lightbox) return;
+    
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let currentY = 0;
+    let isDragging = false;
+    
+    lightbox.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 1) {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            isDragging = true;
+        }
+    });
+    
+    lightbox.addEventListener('touchmove', function(e) {
+        if (!isDragging || e.touches.length !== 1) return;
+        
+        currentX = e.touches[0].clientX;
+        currentY = e.touches[0].clientY;
+        
+        const diffX = currentX - startX;
+        const diffY = currentY - startY;
+        
+        // Prevent scrolling during swipe
+        if (Math.abs(diffX) > Math.abs(diffY)) {
+            e.preventDefault();
+        }
+    });
+    
+    lightbox.addEventListener('touchend', function(e) {
+        if (!isDragging) return;
+        
+        const diffX = currentX - startX;
+        const diffY = currentY - startY;
+        const minSwipeDistance = 50;
+        
+        // Horizontal swipe for navigation
+        if (Math.abs(diffX) > minSwipeDistance && Math.abs(diffX) > Math.abs(diffY)) {
+            if (diffX > 0) {
+                navigateLightbox(-1); // Swipe right = previous
+            } else {
+                navigateLightbox(1);  // Swipe left = next
+            }
+        }
+        // Vertical swipe down to close
+        else if (diffY > minSwipeDistance && diffY > Math.abs(diffX)) {
+            closeLightbox();
+        }
+        
+        isDragging = false;
+        startX = 0;
+        startY = 0;
+        currentX = 0;
+        currentY = 0;
+    });
+    
+    // Pinch to zoom (basic implementation)
+    let initialDistance = 0;
+    let currentScale = 1;
+    
+    lightbox.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 2) {
+            const touch1 = e.touches[0];
+            const touch2 = e.touches[1];
+            initialDistance = Math.hypot(
+                touch2.clientX - touch1.clientX,
+                touch2.clientY - touch1.clientY
+            );
+        }
+    });
+    
+    lightbox.addEventListener('touchmove', function(e) {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const touch1 = e.touches[0];
+            const touch2 = e.touches[1];
+            const currentDistance = Math.hypot(
+                touch2.clientX - touch1.clientX,
+                touch2.clientY - touch1.clientY
+            );
+            
+            if (initialDistance > 0) {
+                const scale = currentDistance / initialDistance;
+                currentScale = Math.min(Math.max(0.5, scale), 3);
+                
+                const lightboxMedia = lightbox.querySelector('.lightbox-media img, .lightbox-media video');
+                if (lightboxMedia) {
+                    lightboxMedia.style.transform = `scale(${currentScale})`;
+                }
+            }
+        }
+    });
+    
+    lightbox.addEventListener('touchend', function(e) {
+        if (e.touches.length === 0) {
+            initialDistance = 0;
+            currentScale = 1;
+            const lightboxMedia = lightbox.querySelector('.lightbox-media img, .lightbox-media video');
+            if (lightboxMedia) {
+                lightboxMedia.style.transform = 'scale(1)';
+            }
+        }
+    });
 });
 
 // Copy to clipboard functionality

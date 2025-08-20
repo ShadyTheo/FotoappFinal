@@ -26,7 +26,8 @@
     </div>
     <?php else: ?>
     <div class="users-table">
-        <table class="table">
+        <div class="table-responsive">
+            <table class="table">
             <thead>
                 <tr>
                     <th>E-Mail</th>
@@ -67,7 +68,8 @@
                 </tr>
                 <?php endforeach; ?>
             </tbody>
-        </table>
+            </table>
+        </div>
     </div>
     <?php endif; ?>
 </div>

@@ -30,7 +30,8 @@
     </div>
     
     <div class="activity-log-table">
-        <table class="table">
+        <div class="table-responsive">
+            <table class="table">
             <thead>
                 <tr>
                     <th>Zeit</th>
@@ -86,6 +87,7 @@
                 <?php endif; ?>
             </tbody>
         </table>
+        </div>
     </div>
     
     <?php if ($totalPages > 1): ?>
