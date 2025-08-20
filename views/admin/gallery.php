@@ -52,12 +52,41 @@
     
     <div class="upload-section">
         <h3>Medien hochladen</h3>
+        
+        <?php if ($uploadLimits !== null): ?>
+        <div class="upload-limits-info">
+            <div class="limits-card">
+                <h4>Ihre Upload-Limits:</h4>
+                <div class="limits-grid">
+                    <div class="limit-item">
+                        <span class="limit-label">Dateien:</span>
+                        <span class="limit-value"><?php echo $uploadLimits['used_files']; ?> / 5</span>
+                        <span class="limit-remaining">(<?php echo $uploadLimits['remaining_files']; ?> verbleibend)</span>
+                    </div>
+                    <div class="limit-item">
+                        <span class="limit-label">Speicher:</span>
+                        <span class="limit-value"><?php echo $uploadLimits['used_size_formatted']; ?> / 15 MB</span>
+                        <span class="limit-remaining">(<?php echo $uploadLimits['remaining_size_formatted']; ?> verbleibend)</span>
+                    </div>
+                </div>
+                <?php if ($uploadLimits['remaining_files'] <= 0 || $uploadLimits['remaining_size'] <= 0): ?>
+                <div class="limit-warning">
+                    ⚠️ Sie haben Ihr Upload-Limit erreicht. Löschen Sie zuerst bestehende Dateien.
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+        
         <div class="upload-area" id="upload-area">
             <input type="file" id="file-input" multiple accept="image/*,video/*" style="display: none;">
             <div class="upload-prompt">
                 <div class="upload-icon">📁</div>
                 <p>Dateien hier hinziehen oder <button type="button" onclick="document.getElementById('file-input').click()" class="btn-link">durchsuchen</button></p>
                 <small>Unterstützt: JPG, PNG, GIF, WebP, MP4, MOV, AVI, WMV (max. 100MB pro Datei)</small>
+                <?php if ($uploadLimits !== null): ?>
+                <small><strong>Limits: Max. 5 Dateien, 15MB total pro Benutzer</strong></small>
+                <?php endif; ?>
             </div>
         </div>
         <div id="upload-progress" class="upload-progress" style="display: none;"></div>
@@ -65,8 +94,13 @@
             <h4>Upload-Tipps:</h4>
             <ul>
                 <li>Sie können mehrere Dateien gleichzeitig hochladen</li>
+                <?php if ($uploadLimits !== null): ?>
+                <li>Jeder Benutzer kann maximal 5 Dateien mit insgesamt 15MB hochladen</li>
+                <li>Löschen Sie alte Dateien um Platz für neue zu schaffen</li>
+                <?php else: ?>
                 <li>Große Dateien werden automatisch komprimiert</li>
                 <li>Videos werden für bessere Kompatibilität optimiert</li>
+                <?php endif; ?>
             </ul>
         </div>
     </div>
@@ -80,7 +114,7 @@
         <?php else: ?>
         <div class="media-grid">
             <?php foreach ($media as $item): ?>
-            <div class="media-item">
+            <div class="media-item" data-media-id="<?php echo $item['id']; ?>">
                 <?php if ($item['type'] === 'photo'): ?>
                 <img src="/uploads/<?php echo htmlspecialchars($item['filename']); ?>" alt="<?php echo htmlspecialchars($item['title']); ?>">
                 <?php else: ?>
@@ -91,6 +125,17 @@
                 <div class="media-info">
                     <p><?php echo htmlspecialchars($item['title']); ?></p>
                     <small><?php echo date('d.m.Y H:i', strtotime($item['uploaded_at'])); ?></small>
+                    <?php if ($item['file_size']): ?>
+                    <small><?php echo $this->formatFileSize($item['file_size']); ?></small>
+                    <?php endif; ?>
+                    <?php if ($item['uploader_email']): ?>
+                    <small>von: <?php echo htmlspecialchars($item['uploader_email']); ?></small>
+                    <?php endif; ?>
+                </div>
+                <div class="media-actions">
+                    <?php if ($_SESSION['user_role'] === 'admin' || (isset($item['user_id']) && $item['user_id'] == $_SESSION['user_id'])): ?>
+                    <button type="button" class="btn btn-small btn-danger" onclick="deleteMedia(<?php echo $item['id']; ?>)">Löschen</button>
+                    <?php endif; ?>
                 </div>
             </div>
             <?php endforeach; ?>

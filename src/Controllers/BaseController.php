@@ -58,6 +58,7 @@ class BaseController {
             'login' => 'Anmeldung',
             'logout' => 'Abmeldung', 
             'login_failed' => 'Fehlgeschl. Anmeldung',
+            'login_blocked' => 'Anmeldung blockiert',
             'create' => 'Erstellt',
             'update' => 'Aktualisiert',
             'delete' => 'Gelöscht',
@@ -66,5 +67,31 @@ class BaseController {
             'view' => 'Angesehen'
         ];
         return $labels[$action] ?? ucfirst($action);
+    }
+    
+    protected function sanitizeInput($input) {
+        if (is_string($input)) {
+            return trim(htmlspecialchars($input, ENT_QUOTES, 'UTF-8'));
+        }
+        return $input;
+    }
+    
+    protected function validateSession() {
+        // Check session timeout (2 hours)
+        if (isset($_SESSION['login_time']) && (time() - $_SESSION['login_time']) > 7200) {
+            session_destroy();
+            header('Location: /?error=' . urlencode('Sitzung abgelaufen'));
+            exit;
+        }
+        
+        // Regenerate session ID periodically
+        if (isset($_SESSION['last_regeneration'])) {
+            if (time() - $_SESSION['last_regeneration'] > 300) { // 5 minutes
+                session_regenerate_id(true);
+                $_SESSION['last_regeneration'] = time();
+            }
+        } else {
+            $_SESSION['last_regeneration'] = time();
+        }
     }
 }

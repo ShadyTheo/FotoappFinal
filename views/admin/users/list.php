@@ -31,6 +31,7 @@
                 <tr>
                     <th>E-Mail</th>
                     <th>Galerien</th>
+                    <th>Upload-Statistiken</th>
                     <th>Erstellt am</th>
                     <th>Aktionen</th>
                 </tr>
@@ -44,6 +45,18 @@
                         <?php if ($user['gallery_names']): ?>
                         <small class="gallery-names"><?php echo htmlspecialchars($user['gallery_names']); ?></small>
                         <?php endif; ?>
+                    </td>
+                    <td>
+                        <div class="upload-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Dateien:</span>
+                                <span class="stat-value"><?php echo $user['total_files_uploaded']; ?></span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Speicher:</span>
+                                <span class="stat-value"><?php echo $user['total_storage_formatted']; ?></span>
+                            </div>
+                        </div>
                     </td>
                     <td><?php echo date('d.m.Y H:i', strtotime($user['created_at'])); ?></td>
                     <td>

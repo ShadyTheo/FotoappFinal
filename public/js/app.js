@@ -46,6 +46,16 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const xhr = new XMLHttpRequest();
         
+        // Attach CSRF token
+        let csrfToken = '';
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        if (csrfMeta) {
+            csrfToken = csrfMeta.getAttribute('content');
+        }
+        if (csrfToken) {
+            formData.append('csrf_token', csrfToken);
+        }
+        
         xhr.upload.addEventListener('progress', function(e) {
             if (e.lengthComputable) {
                 const percentComplete = (e.loaded / e.total) * 100;
@@ -58,21 +68,42 @@ document.addEventListener('DOMContentLoaded', function() {
         
         xhr.addEventListener('load', function() {
             if (xhr.status === 200) {
-                const results = JSON.parse(xhr.responseText);
-                displayUploadResults(results);
-                setTimeout(() => {
-                    location.reload();
-                }, 2000);
+                try {
+                    const results = JSON.parse(xhr.responseText);
+                    displayUploadResults(results);
+                    setTimeout(() => {
+                        location.reload();
+                    }, 2000);
+                } catch (e) {
+                    console.error('JSON Parse Error:', e);
+                    console.error('Response Text:', xhr.responseText);
+                    uploadProgress.innerHTML = '<div class="alert alert-error">Upload-Fehler: Ungültige Antwort vom Server</div>';
+                }
             } else {
-                uploadProgress.innerHTML = '<div class="alert alert-error">Upload-Fehler aufgetreten</div>';
+                console.error('HTTP Status:', xhr.status);
+                console.error('Response Text:', xhr.responseText);
+                let errorMsg = 'Upload-Fehler aufgetreten';
+                if (xhr.status === 413) {
+                    errorMsg = 'Datei(en) zu groß';
+                } else if (xhr.status === 403) {
+                    errorMsg = 'Keine Berechtigung';
+                } else if (xhr.status === 404) {
+                    errorMsg = 'Upload-Endpunkt nicht gefunden';
+                }
+                uploadProgress.innerHTML = '<div class="alert alert-error">' + errorMsg + ' (Status: ' + xhr.status + ')</div>';
             }
         });
         
         xhr.addEventListener('error', function() {
-            uploadProgress.innerHTML = '<div class="alert alert-error">Upload-Fehler aufgetreten</div>';
+            console.error('Network Error occurred');
+            uploadProgress.innerHTML = '<div class="alert alert-error">Netzwerk-Fehler: Verbindung zum Server fehlgeschlagen</div>';
         });
         
-        xhr.open('POST', `/admin/galleries/${galleryId}/upload`);
+        const uploadUrl = `/admin/galleries/${galleryId}/upload`;
+        console.log('Upload URL:', uploadUrl);
+        console.log('CSRF Token:', csrfToken);
+        
+        xhr.open('POST', uploadUrl);
         xhr.send(formData);
     }
     
@@ -181,4 +212,99 @@ function copyToClipboard(elementId) {
     setTimeout(() => {
         button.textContent = originalText;
     }, 2000);
+}
+
+// Delete media functionality
+function deleteMedia(mediaId) {
+    if (!confirm('Sind Sie sicher, dass Sie diese Datei löschen möchten? Diese Aktion kann nicht rückgängig gemacht werden.')) {
+        return;
+    }
+    
+    // Get CSRF token from meta tag or form
+    let csrfToken = '';
+    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    if (csrfMeta) {
+        csrfToken = csrfMeta.getAttribute('content');
+    } else {
+        // Try to get from existing form
+        const csrfInput = document.querySelector('input[name="csrf_token"]');
+        if (csrfInput) {
+            csrfToken = csrfInput.value;
+        }
+    }
+    
+    // Create form data
+    const formData = new FormData();
+    formData.append('csrf_token', csrfToken);
+    
+    // Show loading state
+    const mediaItem = document.querySelector(`[data-media-id="${mediaId}"]`);
+    const deleteButton = mediaItem.querySelector('.btn-danger');
+    const originalText = deleteButton.textContent;
+    deleteButton.textContent = 'Wird gelöscht...';
+    deleteButton.disabled = true;
+    
+    // Send delete request
+    fetch(`/media/${mediaId}/delete`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Remove the media item from the DOM
+            mediaItem.remove();
+            
+            // Update media count in header
+            const mediaSection = document.querySelector('.media-section h3');
+            if (mediaSection) {
+                const currentCount = parseInt(mediaSection.textContent.match(/\d+/)[0]);
+                mediaSection.textContent = `Medien (${currentCount - 1})`;
+            }
+            
+            // Show success message if upload limits exist
+            const limitInfo = document.querySelector('.upload-limits-info');
+            if (limitInfo && data.freed_size_formatted) {
+                showTemporaryMessage(`Datei gelöscht! ${data.freed_size_formatted} Speicherplatz wurde freigegeben.`, 'success');
+                
+                // Reload page after 2 seconds to update limits
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+            }
+        } else {
+            // Show error message
+            showTemporaryMessage(data.error || 'Fehler beim Löschen der Datei', 'error');
+            
+            // Restore button state
+            deleteButton.textContent = originalText;
+            deleteButton.disabled = false;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showTemporaryMessage('Netzwerkfehler beim Löschen der Datei', 'error');
+        
+        // Restore button state
+        deleteButton.textContent = originalText;
+        deleteButton.disabled = false;
+    });
+}
+
+// Show temporary message
+function showTemporaryMessage(message, type) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `alert alert-${type}`;
+    messageDiv.textContent = message;
+    messageDiv.style.position = 'fixed';
+    messageDiv.style.top = '20px';
+    messageDiv.style.right = '20px';
+    messageDiv.style.zIndex = '9999';
+    messageDiv.style.maxWidth = '400px';
+    
+    document.body.appendChild(messageDiv);
+    
+    setTimeout(() => {
+        messageDiv.remove();
+    }, 5000);
 }

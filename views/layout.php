@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Foto-Galerie</title>
     <link rel="stylesheet" href="/css/style.css">
+    <?php if (session_status() === PHP_SESSION_ACTIVE): ?>
+    <?php echo \App\Security\CSRFToken::getMetaTag(); ?>
+    <?php endif; ?>
 </head>
 <body>
     <header>

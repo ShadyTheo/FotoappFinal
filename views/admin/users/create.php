@@ -11,15 +11,17 @@
     <?php endif; ?>
     
     <form method="POST" action="/admin/users" class="user-form">
+        <?php echo \App\Security\CSRFToken::getHiddenField(); ?>
+        
         <div class="form-group">
             <label for="email">E-Mail:</label>
-            <input type="email" id="email" name="email" required>
+            <input type="email" id="email" name="email" required maxlength="255" autocomplete="email">
         </div>
         
         <div class="form-group">
             <label for="password">Passwort:</label>
-            <input type="password" id="password" name="password" required>
-            <small>Der Benutzer kann sich mit diesem Passwort anmelden und automatisch auf zugewiesene Galerien zugreifen</small>
+            <input type="password" id="password" name="password" required minlength="8" maxlength="255" autocomplete="new-password">
+            <small>Mindestens 8 Zeichen. Der Benutzer kann sich mit diesem Passwort anmelden und automatisch auf zugewiesene Galerien zugreifen</small>
         </div>
         
         <div class="form-group">

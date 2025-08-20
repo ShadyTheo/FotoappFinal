@@ -53,6 +53,37 @@
             <small>Zugewiesene Galerien sind für den Benutzer nach der Anmeldung automatisch zugänglich</small>
         </div>
         
+        <!-- Upload Statistics Section -->
+        <?php if (!empty($userGalleryStats)): ?>
+        <div class="form-group">
+            <h3>Upload-Statistiken</h3>
+            <div class="upload-stats-grid">
+                <?php foreach ($userGalleryStats as $galleryStat): ?>
+                <div class="gallery-stat-card">
+                    <h4><?php echo htmlspecialchars($galleryStat['gallery_name']); ?></h4>
+                    <div class="stat-row">
+                        <div class="stat-item">
+                            <span class="stat-label">Dateien:</span>
+                            <span class="stat-value"><?php echo $galleryStat['file_count']; ?> / 5</span>
+                            <span class="stat-remaining">(<?php echo $galleryStat['remaining_files']; ?> verbleibend)</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Speicher:</span>
+                            <span class="stat-value"><?php echo $galleryStat['total_size_formatted']; ?> / 15 MB</span>
+                            <span class="stat-remaining">(<?php echo $galleryStat['remaining_size_formatted']; ?> verbleibend)</span>
+                        </div>
+                    </div>
+                    <?php if ($galleryStat['file_count'] >= 5 || $galleryStat['remaining_size'] <= 0): ?>
+                    <div class="limit-warning">
+                        <span class="status-warning">Limit erreicht</span>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+        
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Benutzer aktualisieren</button>
             <a href="/admin/users" class="btn btn-secondary">Abbrechen</a>

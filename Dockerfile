@@ -6,6 +6,10 @@ RUN apt-get update && apt-get install -y \
     libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install PHP SQLite extensions
+RUN docker-php-ext-configure pdo_sqlite && \
+    docker-php-ext-install pdo_sqlite
+
 # Configure PHP
 RUN echo "upload_max_filesize = 256M" > /usr/local/etc/php/conf.d/upload.ini && \
     echo "post_max_size = 256M" >> /usr/local/etc/php/conf.d/upload.ini && \

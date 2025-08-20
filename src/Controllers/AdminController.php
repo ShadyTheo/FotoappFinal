@@ -4,6 +4,9 @@ namespace App\Controllers;
 
 use App\Database;
 use App\ActivityLogger;
+use App\Security\FileValidator;
+use App\Security\CSRFToken;
+use App\Security\UploadLimitValidator;
 
 class AdminController extends BaseController {
     private $db;
@@ -101,11 +104,20 @@ class AdminController extends BaseController {
     
     public function storeGallery() {
         $this->requireAdmin();
+        $this->validateSession();
         
-        $name = trim($_POST['name'] ?? '');
-        $clientEmail = trim($_POST['client_email'] ?? '') ?: null;
-        $accessCode = trim($_POST['access_code'] ?? '') ?: null;
+        // Validate CSRF token
+        CSRFToken::validateRequest();
+        
+        $name = $this->sanitizeInput($_POST['name'] ?? '');
+        $clientEmail = $this->sanitizeInput($_POST['client_email'] ?? '') ?: null;
+        $accessCode = $this->sanitizeInput($_POST['access_code'] ?? '') ?: null;
         $isPublic = isset($_POST['is_public']) ? 1 : 0;
+        
+        // Validate email if provided
+        if ($clientEmail && !filter_var($clientEmail, FILTER_VALIDATE_EMAIL)) {
+            $this->redirect('/admin/galleries/create', ['error' => 'Ungültige E-Mail-Adresse']);
+        }
         
         if (empty($name)) {
             $this->redirect('/admin/galleries/create', ['error' => 'Galeriename ist erforderlich']);
@@ -135,7 +147,7 @@ class AdminController extends BaseController {
     }
     
     public function showGallery($id) {
-        $this->requireAdmin();
+        $this->requireAuth(); // Allow both admin and regular users
         
         $stmt = $this->db->getPdo()->prepare("SELECT * FROM galleries WHERE id = ?");
         $stmt->execute([$id]);
@@ -147,19 +159,73 @@ class AdminController extends BaseController {
             return;
         }
         
-        $stmt = $this->db->getPdo()->prepare("SELECT * FROM media WHERE gallery_id = ? ORDER BY uploaded_at DESC");
+        // Check if non-admin users have access to this gallery
+        if ($_SESSION['user_role'] !== 'admin') {
+            $stmt = $this->db->getPdo()->prepare("
+                SELECT 1 FROM user_galleries 
+                WHERE user_id = ? AND gallery_id = ?
+            ");
+            $stmt->execute([$_SESSION['user_id'], $id]);
+            
+            if (!$stmt->fetch()) {
+                http_response_code(403);
+                echo 'Access denied';
+                return;
+            }
+        }
+        
+        $stmt = $this->db->getPdo()->prepare("
+            SELECT m.*, u.email as uploader_email 
+            FROM media m 
+            LEFT JOIN users u ON m.user_id = u.id 
+            WHERE m.gallery_id = ? 
+            ORDER BY m.uploaded_at DESC
+        ");
         $stmt->execute([$id]);
         $media = $stmt->fetchAll();
+        
+        // Get upload limits info for non-admin users
+        $uploadLimits = null;
+        if ($_SESSION['user_role'] !== 'admin') {
+            $uploadLimitValidator = new UploadLimitValidator();
+            $uploadLimits = $uploadLimitValidator->getUserGalleryRemainingLimits($_SESSION['user_id'], $id);
+        }
         
         $this->render('admin/gallery', [
             'gallery' => $gallery,
             'media' => $media,
+            'uploadLimits' => $uploadLimits,
             'flash' => $this->getFlash()
         ]);
     }
     
     public function uploadMedia($id) {
-        $this->requireAdmin();
+        try {
+            $this->requireAuth(); // Allow both admin and regular users
+            $this->validateSession();
+            
+            // Validate CSRF token
+            CSRFToken::validateRequest();
+        } catch (\Exception $e) {
+            error_log("Upload error in validation: " . $e->getMessage());
+            http_response_code(400);
+            echo json_encode(['error' => 'Validierungsfehler: ' . $e->getMessage()]);
+            return;
+        }
+        
+        // Check if non-admin users have access to this gallery
+        if ($_SESSION['user_role'] !== 'admin') {
+            $stmt = $this->db->getPdo()->prepare("
+                SELECT 1 FROM user_galleries 
+                WHERE user_id = ? AND gallery_id = ?
+            ");
+            $stmt->execute([$_SESSION['user_id'], $id]);
+            
+            if (!$stmt->fetch()) {
+                echo json_encode(['error' => 'Keine Berechtigung für diese Galerie']);
+                return;
+            }
+        }
         
         if (!isset($_FILES['files'])) {
             echo json_encode(['error' => 'Keine Dateien hochgeladen']);
@@ -167,6 +233,28 @@ class AdminController extends BaseController {
         }
         
         $files = $_FILES['files'];
+        
+        // Check upload limits for non-admin users
+        if ($_SESSION['user_role'] !== 'admin') {
+            $uploadLimitValidator = new UploadLimitValidator();
+            
+            // Convert files array to proper format for validation
+            $fileArray = [];
+            for ($i = 0; $i < count($files['name']); $i++) {
+                $fileArray[] = [
+                    'name' => $files['name'][$i],
+                    'size' => $files['size'][$i],
+                    'error' => $files['error'][$i]
+                ];
+            }
+            
+            $limitErrors = $uploadLimitValidator->validateUserUpload($_SESSION['user_id'], $id, $fileArray);
+            
+            if (!empty($limitErrors)) {
+                echo json_encode(['error' => implode(' ', $limitErrors)]);
+                return;
+            }
+        }
         $uploadDir = __DIR__ . '/../../public/uploads/';
         
         if (!is_dir($uploadDir)) {
@@ -174,11 +262,6 @@ class AdminController extends BaseController {
         }
         
         $results = [];
-        $allowedTypes = [
-            'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
-            'video/mp4', 'video/mov', 'video/avi', 'video/wmv'
-        ];
-        $maxFileSize = 100 * 1024 * 1024; // 100MB
         $totalUploaded = 0;
         $successCount = 0;
         
@@ -191,88 +274,109 @@ class AdminController extends BaseController {
                 'size' => $files['size'][$i]
             ];
             
-            // Enhanced error handling
-            if ($file['error'] !== UPLOAD_ERR_OK) {
-                $errorMsg = $this->getUploadErrorMessage($file['error']);
-                $results[] = ['file' => $file['name'], 'error' => $errorMsg];
-                continue;
-            }
+            // Comprehensive security validation
+            $validationErrors = FileValidator::validateFile($file);
             
-            // File size validation
-            if ($file['size'] > $maxFileSize) {
-                $results[] = ['file' => $file['name'], 'error' => 'Datei zu groß (max. 100MB)'];
-                continue;
-            }
-            
-            if ($file['size'] == 0) {
-                $results[] = ['file' => $file['name'], 'error' => 'Leere Datei'];
-                continue;
-            }
-            
-            // Enhanced MIME type validation
-            $finfo = finfo_open(FILEINFO_MIME_TYPE);
-            $realMimeType = finfo_file($finfo, $file['tmp_name']);
-            finfo_close($finfo);
-            
-            if (!in_array($realMimeType, $allowedTypes) && !in_array($file['type'], $allowedTypes)) {
-                $results[] = ['file' => $file['name'], 'error' => 'Ungültiger Dateityp: ' . $file['type']];
+            if (!empty($validationErrors)) {
+                $results[] = [
+                    'file' => $this->sanitizeInput($file['name']), 
+                    'error' => implode(', ', $validationErrors)
+                ];
+                
+                // Quarantine suspicious files
+                if (isset($file['tmp_name']) && file_exists($file['tmp_name'])) {
+                    FileValidator::quarantineFile($file['tmp_name'], implode(', ', $validationErrors));
+                }
                 continue;
             }
             
             // Generate secure filename
-            $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-            $filename = date('Y-m-d_H-i-s') . '_' . uniqid() . '.' . $extension;
+            $filename = FileValidator::generateSecureFilename($file['name']);
             $filepath = $uploadDir . $filename;
             
             if (move_uploaded_file($file['tmp_name'], $filepath)) {
+                // Set proper file permissions
+                chmod($filepath, 0644);
+                
+                // Determine file type
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $realMimeType = finfo_file($finfo, $filepath);
+                finfo_close($finfo);
+                
                 $type = strpos($realMimeType, 'image/') === 0 ? 'photo' : 'video';
                 
                 // Get additional metadata
                 $fileSize = filesize($filepath);
                 $dimensions = null;
-                $duration = null;
                 
                 if ($type === 'photo' && function_exists('getimagesize')) {
-                    $imageInfo = getimagesize($filepath);
+                    $imageInfo = @getimagesize($filepath);
                     if ($imageInfo) {
                         $dimensions = $imageInfo[0] . 'x' . $imageInfo[1];
                     }
                 }
                 
-                $stmt = $this->db->getPdo()->prepare("
-                    INSERT INTO media (gallery_id, type, filename, mime_type, title, file_size)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ");
-                
-                $stmt->execute([$id, $type, $filename, $realMimeType, $file['name'], $fileSize]);
-                $mediaId = $this->db->getPdo()->lastInsertId();
-                
-                // Log media upload
-                $this->logger->log('upload', 'media', $mediaId, "Uploaded {$type}: {$file['name']} ({$this->formatFileSize($fileSize)})");
-                
-                $results[] = [
-                    'file' => $file['name'], 
-                    'success' => true,
-                    'size' => $this->formatFileSize($fileSize),
-                    'dimensions' => $dimensions
-                ];
-                $successCount++;
-                $totalUploaded += $fileSize;
+                try {
+                    $stmt = $this->db->getPdo()->prepare("
+                        INSERT INTO media (gallery_id, user_id, type, filename, mime_type, title, file_size)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    
+                    $stmt->execute([
+                        $id, 
+                        $_SESSION['user_id'], // Track who uploaded the file
+                        $type, 
+                        $filename, 
+                        $realMimeType, 
+                        $this->sanitizeInput($file['name']), 
+                        $fileSize
+                    ]);
+                    $mediaId = $this->db->getPdo()->lastInsertId();
+                    
+                    // Log media upload
+                    $this->logger->log('upload', 'media', $mediaId, "Uploaded {$type}: {$file['name']} ({$this->formatFileSize($fileSize)})");
+                    
+                    $results[] = [
+                        'file' => $this->sanitizeInput($file['name']), 
+                        'success' => true,
+                        'size' => $this->formatFileSize($fileSize),
+                        'dimensions' => $dimensions
+                    ];
+                    $successCount++;
+                    $totalUploaded += $fileSize;
+                } catch (\Exception $e) {
+                    // Clean up file if database insert fails
+                    unlink($filepath);
+                    $results[] = [
+                        'file' => $this->sanitizeInput($file['name']), 
+                        'error' => 'Datenbankfehler beim Speichern'
+                    ];
+                    error_log("Database error during file upload: " . $e->getMessage());
+                }
             } else {
-                $results[] = ['file' => $file['name'], 'error' => 'Fehler beim Speichern der Datei'];
+                $results[] = [
+                    'file' => $this->sanitizeInput($file['name']), 
+                    'error' => 'Fehler beim Speichern der Datei'
+                ];
             }
         }
         
-        header('Content-Type: application/json');
-        echo json_encode([
-            'results' => $results,
-            'summary' => [
-                'total' => count($files['name']),
-                'success' => $successCount,
-                'failed' => count($files['name']) - $successCount,
-                'totalSize' => $this->formatFileSize($totalUploaded)
-            ]
-        ]);
+        try {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'results' => $results,
+                'summary' => [
+                    'total' => count($files['name']),
+                    'success' => $successCount,
+                    'failed' => count($files['name']) - $successCount,
+                    'totalSize' => $this->formatFileSize($totalUploaded)
+                ]
+            ]);
+        } catch (\Exception $e) {
+            error_log("Upload error in final response: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode(['error' => 'Server-Fehler beim Verarbeiten der Antwort']);
+        }
     }
     
     private function getUploadErrorMessage($error) {
@@ -302,16 +406,24 @@ class AdminController extends BaseController {
         $stmt = $this->db->getPdo()->prepare("
             SELECT u.*, 
                    GROUP_CONCAT(g.name) as gallery_names,
-                   COUNT(DISTINCT ug.gallery_id) as gallery_count
+                   COUNT(DISTINCT ug.gallery_id) as gallery_count,
+                   COUNT(DISTINCT m.id) as total_files_uploaded,
+                   COALESCE(SUM(m.file_size), 0) as total_storage_used
             FROM users u
             LEFT JOIN user_galleries ug ON u.id = ug.user_id
             LEFT JOIN galleries g ON ug.gallery_id = g.id
+            LEFT JOIN media m ON u.id = m.user_id
             WHERE u.role = 'client'
             GROUP BY u.id
             ORDER BY u.created_at DESC
         ");
         $stmt->execute();
         $users = $stmt->fetchAll();
+        
+        // Add formatted storage for each user
+        foreach ($users as &$user) {
+            $user['total_storage_formatted'] = $this->formatFileSize($user['total_storage_used']);
+        }
         
         $this->render('admin/users/list', [
             'users' => $users,
@@ -334,13 +446,27 @@ class AdminController extends BaseController {
     
     public function storeUser() {
         $this->requireAdmin();
+        $this->validateSession();
         
-        $email = trim($_POST['email'] ?? '');
-        $password = trim($_POST['password'] ?? '');
-        $galleryIds = $_POST['gallery_ids'] ?? [];
+        // Validate CSRF token
+        CSRFToken::validateRequest();
+        
+        $email = $this->sanitizeInput($_POST['email'] ?? '');
+        $password = $_POST['password'] ?? ''; // Don't sanitize passwords
+        $galleryIds = array_map('intval', $_POST['gallery_ids'] ?? []); // Sanitize array of IDs
         
         if (empty($email) || empty($password)) {
             $this->redirect('/admin/users/create', ['error' => 'E-Mail und Passwort sind erforderlich']);
+        }
+        
+        // Validate email format
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $this->redirect('/admin/users/create', ['error' => 'Ungültige E-Mail-Adresse']);
+        }
+        
+        // Validate password strength
+        if (strlen($password) < 8) {
+            $this->redirect('/admin/users/create', ['error' => 'Passwort muss mindestens 8 Zeichen lang sein']);
         }
         
         // Check if email already exists
@@ -405,10 +531,23 @@ class AdminController extends BaseController {
         $stmt->execute([$id]);
         $assignedGalleryIds = array_column($stmt->fetchAll(), 'gallery_id');
         
+        // Get detailed upload statistics for this user
+        $uploadLimitValidator = new UploadLimitValidator();
+        $userGalleryStats = $uploadLimitValidator->getAllUserGalleryStats($id);
+        
+        // Add formatted values and limits info
+        foreach ($userGalleryStats as &$galleryStat) {
+            $galleryStat['total_size_formatted'] = $this->formatFileSize($galleryStat['total_size']);
+            $galleryStat['remaining_files'] = max(0, 5 - $galleryStat['file_count']);
+            $galleryStat['remaining_size'] = max(0, (15 * 1024 * 1024) - $galleryStat['total_size']);
+            $galleryStat['remaining_size_formatted'] = $this->formatFileSize($galleryStat['remaining_size']);
+        }
+        
         $this->render('admin/users/edit', [
             'user' => $user,
             'galleries' => $galleries,
             'assignedGalleryIds' => $assignedGalleryIds,
+            'userGalleryStats' => $userGalleryStats,
             'flash' => $this->getFlash()
         ]);
     }
@@ -468,6 +607,57 @@ class AdminController extends BaseController {
             $this->db->getPdo()->rollBack();
             $this->redirect('/admin/users/' . $id, ['error' => 'Fehler beim Aktualisieren des Benutzers']);
         }
+    }
+    
+    public function deleteMedia($mediaId) {
+        $this->requireAuth();
+        $this->validateSession();
+        
+        // Validate CSRF token
+        CSRFToken::validateRequest();
+        
+        $uploadLimitValidator = new UploadLimitValidator();
+        
+        // For non-admin users, only allow deleting their own files
+        if ($_SESSION['user_role'] !== 'admin') {
+            $result = $uploadLimitValidator->deleteUserFile($_SESSION['user_id'], $mediaId);
+        } else {
+            // Admin can delete any file
+            $stmt = $this->db->getPdo()->prepare("
+                SELECT filename, file_size, user_id 
+                FROM media 
+                WHERE id = ?
+            ");
+            $stmt->execute([$mediaId]);
+            $media = $stmt->fetch();
+            
+            if (!$media) {
+                $result = ['success' => false, 'error' => 'Datei nicht gefunden'];
+            } else {
+                // Delete from database
+                $stmt = $this->db->getPdo()->prepare("DELETE FROM media WHERE id = ?");
+                $stmt->execute([$mediaId]);
+                
+                // Delete physical file
+                $filePath = __DIR__ . '/../../public/uploads/' . $media['filename'];
+                if (file_exists($filePath)) {
+                    unlink($filePath);
+                }
+                
+                $result = [
+                    'success' => true,
+                    'freed_size' => $media['file_size'],
+                    'freed_size_formatted' => $this->formatFileSize($media['file_size'])
+                ];
+            }
+        }
+        
+        if ($result['success']) {
+            $this->logger->log('delete', 'media', $mediaId, "Deleted media file");
+        }
+        
+        header('Content-Type: application/json');
+        echo json_encode($result);
     }
     
     public function activityLog() {

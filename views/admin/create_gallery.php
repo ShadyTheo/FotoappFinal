@@ -11,20 +11,22 @@
     <?php endif; ?>
     
     <form method="POST" action="/admin/galleries" class="gallery-form">
+        <?php echo \App\Security\CSRFToken::getHiddenField(); ?>
+        
         <div class="form-group">
             <label for="name">Galeriename:</label>
-            <input type="text" id="name" name="name" required>
+            <input type="text" id="name" name="name" required maxlength="255">
         </div>
         
         <div class="form-group">
             <label for="client_email">Kunden E-Mail (optional):</label>
-            <input type="email" id="client_email" name="client_email">
+            <input type="email" id="client_email" name="client_email" maxlength="255">
             <small>Nur dieser Kunde kann die Galerie sehen</small>
         </div>
         
         <div class="form-group">
             <label for="access_code">Zugangscode (optional):</label>
-            <input type="text" id="access_code" name="access_code">
+            <input type="text" id="access_code" name="access_code" maxlength="50" pattern="[a-zA-Z0-9]+">
             <small>Leer lassen für automatische Generierung</small>
         </div>
         

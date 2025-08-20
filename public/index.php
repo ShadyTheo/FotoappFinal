@@ -5,6 +5,17 @@ use App\Router;
 use App\Controllers\AuthController;
 use App\Controllers\AdminController;
 use App\Controllers\GalleryController;
+use App\Security\SecurityHeaders;
+use App\Security\ErrorHandler;
+
+// Initialize error handling
+ErrorHandler::init();
+
+// Apply security configuration
+SecurityHeaders::setSecureSessionConfig();
+SecurityHeaders::apply();
+SecurityHeaders::validateRequest();
+SecurityHeaders::sanitizeGlobals();
 
 session_start();
 
@@ -32,6 +43,9 @@ $router->post('/admin/users/{id}', [AdminController::class, 'updateUser']);
 // Activity log routes
 $router->get('/admin/activity', [AdminController::class, 'activityLog']);
 
+// Media management routes
+$router->post('/media/{id}/delete', [AdminController::class, 'deleteMedia']);
+
 // User dashboard
 $router->get('/galleries', [GalleryController::class, 'userDashboard']);
 
@@ -40,12 +54,37 @@ $router->get('/gallery/{id}', [GalleryController::class, 'show']);
 $router->get('/gallery/{id}/access', [GalleryController::class, 'showAccess']);
 $router->post('/gallery/{id}/access', [GalleryController::class, 'checkAccess']);
 
-// Static files
+// Static files - secured
 $router->get('/uploads/{file}', function($file) {
-    $filePath = __DIR__ . '/uploads/' . basename($file);
-    if (file_exists($filePath)) {
+    // Validate filename to prevent path traversal
+    $file = basename($file);
+    if (preg_match('/[^a-zA-Z0-9._-]/', $file) || strpos($file, '..') !== false) {
+        http_response_code(403);
+        echo 'Access denied';
+        exit;
+    }
+    
+    $filePath = __DIR__ . '/uploads/' . $file;
+    if (file_exists($filePath) && is_file($filePath)) {
         $mimeType = mime_content_type($filePath);
+        
+        // Only serve allowed file types
+        $allowedTypes = [
+            'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+            'video/mp4', 'video/mov', 'video/avi', 'video/wmv'
+        ];
+        
+        if (!in_array($mimeType, $allowedTypes)) {
+            http_response_code(403);
+            echo 'File type not allowed';
+            exit;
+        }
+        
+        // Set security headers for files
+        header('X-Content-Type-Options: nosniff');
         header('Content-Type: ' . $mimeType);
+        header('Content-Disposition: inline; filename="' . htmlspecialchars($file, ENT_QUOTES) . '"');
+        
         readfile($filePath);
         exit;
     }

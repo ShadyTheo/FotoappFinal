@@ -9,14 +9,16 @@
         <?php endif; ?>
         
         <form method="POST" action="/login" class="auth-form">
+            <?php echo \App\Security\CSRFToken::getHiddenField(); ?>
+            
             <div class="form-group">
                 <label for="email">E-Mail:</label>
-                <input type="email" id="email" name="email" required>
+                <input type="email" id="email" name="email" required maxlength="255" autocomplete="email">
             </div>
             
             <div class="form-group">
                 <label for="password">Passwort:</label>
-                <input type="password" id="password" name="password" required>
+                <input type="password" id="password" name="password" required maxlength="255" autocomplete="current-password">
             </div>
             
             <button type="submit" class="btn btn-primary">Anmelden</button>
